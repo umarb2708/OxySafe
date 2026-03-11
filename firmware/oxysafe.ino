@@ -14,6 +14,7 @@
  *  - ESP8266WiFi       (bundled with ESP8266 board package)
  *  - ESP8266WebServer  (bundled with ESP8266 board package)
  *  - ESP8266HTTPClient (bundled with ESP8266 board package)
+ *  - ArduinoOTA        (bundled with ESP8266 board package)
  *  - EEPROM            (bundled with ESP8266 board package)
  *  - DHT sensor library by Adafruit
  *  - ArduinoJson       by Benoit Blanchon  (v6.x)
@@ -36,9 +37,13 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266mDNS.h>
+#include <ArduinoOTA.h>
 #include <WiFiClient.h>
 #include <EEPROM.h>
 #include <DHT.h>
+// ESP8266 core 2.5.0: pgm_read_ptr returns void* which is incompatible with ArduinoJson v7
+#define ARDUINOJSON_ENABLE_PROGMEM 0
 #include <ArduinoJson.h>
 
 // ─────────────────────────────────────────────────────────────
@@ -49,6 +54,9 @@
 
 #define AP_SSID             "OxySafe"
 #define AP_PASSWORD         "Oxy@123#"
+
+#define OTA_HOSTNAME        "oxysafe"         // appears in Arduino IDE port list
+#define OTA_PASSWORD        "Oxysafe@OTA123#"  // change before deploying
 
 #define WIFI_TIMEOUT_MS     15000UL   // 15 s before falling into config mode
 #define SEND_INTERVAL_MS    10000UL   // sensor POST interval
@@ -299,6 +307,36 @@ bool connectWiFi() {
 }
 
 // ═════════════════════════════════════════════════════════════
+//  OTA  (ArduinoOTA)
+// ═════════════════════════════════════════════════════════════
+void setupOTA() {
+    ArduinoOTA.setHostname(OTA_HOSTNAME);
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+
+    ArduinoOTA.onStart([]() {
+        String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+        Serial.println("[OTA] Starting update: " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\n[OTA] Update complete. Rebooting...");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("[OTA] Progress: %u%%\r", progress * 100 / total);
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("[OTA] Error[%u]: ", error);
+        if      (error == OTA_AUTH_ERROR)    Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)   Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)     Serial.println("End Failed");
+    });
+
+    ArduinoOTA.begin();
+    Serial.printf("[OTA] Ready — hostname: %s\n", OTA_HOSTNAME);
+}
+
+// ═════════════════════════════════════════════════════════════
 //  Dust Sensor  (GP2Y1010AU0F)
 // ═════════════════════════════════════════════════════════════
 #define DUST_SAMPLING_TIME  280   // µs
@@ -362,7 +400,7 @@ void sendDataToServer(float temperature, float humidity,
     http.addHeader("X-API-Key", API_KEY);
     http.setTimeout(8000);
 
-    StaticJsonDocument<256> doc;
+    JsonDocument doc;
     doc["username"]     = cfg_username;
     doc["temp"]         = serialized(String(temperature, 2));
     doc["humidity"]     = serialized(String(humidity, 2));
@@ -420,6 +458,9 @@ void setup() {
         enterConfigMode();
     }
 
+    // Start OTA listener
+    setupOTA();
+
     // Normal operation starts here
     lastSendTime = millis() - SEND_INTERVAL_MS;   // trigger first read immediately
     Serial.println("[Setup] Ready. Starting sensor loop.");
@@ -429,6 +470,8 @@ void setup() {
 //  Loop
 // ═════════════════════════════════════════════════════════════
 void loop() {
+    ArduinoOTA.handle();   // handle incoming OTA upload requests
+
     // Reconnect WiFi if it drops
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[WiFi] Disconnected. Reconnecting...");
