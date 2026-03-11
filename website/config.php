@@ -15,7 +15,7 @@ define('API_KEY',   'OXYSAFE_SECRET_KEY');  // must match firmware
 
 // ─── Application ─────────────────────────────────────────────
 define('APP_NAME',  'OxySafe');
-define('BASE_URL',  'http://your-server.com/website');  // no trailing slash
+define('BASE_URL',  'http://localhost/OxySafe/website');  // no trailing slash
 
 // ─── Session timeout (seconds) ───────────────────────────────
 define('SESSION_TIMEOUT', 3600);
