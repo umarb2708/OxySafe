@@ -6,9 +6,12 @@
  *
  * Wiring:
  *  DHT11        -> D4  (GPIO2)
- *  Dust AOUT    -> A0  (Analog In)
- *  Dust LED CTL -> D5  (GPIO14)  via 150Ω resistor
- *  Dust VCC     -> 3.3V / 5V depending on sensor breakout board
+ *  Dust AOUT    -> A0  (Analog In) via 100kΩ/33kΩ voltage divider
+ *  Dust LED CTL -> D5  (GPIO14) - pulses LOW to activate LED
+ *  Dust V-LED   -> 5V via 150Ω resistor
+ *  Dust VCC     -> 5V (REQUIRED - sensor needs 5V, not 3.3V)
+ *  Dust GND     -> GND (Pin 2 and Pin 4)
+ *  220µF cap    -> Between Dust VCC (Pin 6) and GND (+ to VCC)
  *
  * Libraries required (install via Arduino Library Manager):
  *  - ESP8266WiFi       (bundled with ESP8266 board package)
