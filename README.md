@@ -36,7 +36,7 @@ Key highlights:
 | 4 | Resistor | **150 Ω** | Current-limiting resistor between 5V and GP2Y1010 V-LED pin |
 | 5 | Capacitor | **220 µF electrolytic** | Power-supply decoupling on GP2Y1010 Vcc to suppress LED-pulse noise |
 | 6 | USB cable / 5 V supply | — | Powers NodeMCU via VIN; **GP2Y1010 requires 5V** (DHT11 uses 3.3V) |
-| 7 | Voltage Divider Resistors | 100kΩ + 33kΩ | Scales GP2Y1010 output (0-4V) to safe ESP8266 ADC range (0-1V) |
+| 7 | Voltage Divider Resistors | 150kΩ + 47kΩ (or alternatives) | Scales GP2Y1010 output (0-4V) to safe ESP8266 ADC range (0-1V) |
 
 ---
 
@@ -147,7 +147,7 @@ The user dashboard auto-refreshes via JavaScript every 10 s using `api/get_data.
 | GP2Y1010 | Pin 2 – LED-GND | GND | LED cathode |
 | GP2Y1010 | Pin 3 – LED | **D5** (GPIO14) | Firmware pulses LOW to activate LED |
 | GP2Y1010 | Pin 4 – S-GND | GND | Signal ground |
-| GP2Y1010 | Pin 5 – Vo | **A0** via voltage divider | Analog dust output (0-4V); needs 100kΩ/33kΩ divider |
+| GP2Y1010 | Pin 5 – Vo | **A0** via voltage divider | Analog dust output (0-4V); needs divider (e.g., 150kΩ/47kΩ) |
 | GP2Y1010 | Pin 6 – Vcc | **5V** | Power supply + 220 µF cap to GND (observe polarity!) |
 
 ### ASCII Wiring Diagram
@@ -167,18 +167,19 @@ The user dashboard auto-refreshes via JavaScript every 10 s using `api/get_data.
   │ DATA ●───┼── D4                                        │ Pin 2 (LED-GND)●──┼── GND
   │ GND  ●───┼── GND                                       │ Pin 3 (LED)   ●──┼── D5
   └──────────┘                                             │ Pin 4 (S-GND) ●──┼── GND
-                                                           │ Pin 5 (Vo)    ●──┼── [100kΩ] ── A0
+                                                           │ Pin 5 (Vo)    ●──┼── [R1] ── A0
                                                            │ Pin 6 (Vcc)   ●──┼── 5V ─┬─────── GND
                                                            └──────────────────┘       │        │
-                                                                                  220µF cap  [33kΩ]
+                                                                                  220µF cap  [R2]
                                                                              (+ towards Vcc)    │
                                                                                               GND
+        Voltage Divider: R1=150kΩ, R2=47kΩ (or 100kΩ/27kΩ, or 82kΩ/22kΩ)
 ```
 ⚠️ CRITICAL NOTES:**  
 > 1. **5V Power Required:** The GP2Y1010AU0F requires **5V** (not 3.3V) for proper operation. Connect Pin 1 and Pin 6 to 5V rail.  
-> 2. **ADC Protection:** ESP8266 `A0` accepts **0-1V maximum**. GP2Y1010 outputs up to ~4V. **You MUST use a voltage divider** (100kΩ series + 33kΩ to GND) between `Vo` and `A0` to prevent ADC damage.  
+> 2. **ADC Protection:** ESP8266 `A0` accepts **0-1V maximum**. GP2Y1010 outputs up to ~4V. **You MUST use a voltage divider** between `Vo` and `A0` to prevent ADC damage. Recommended: 150kΩ (series) + 47kΩ (to GND), or see alternatives in WIRING_DIAGRAM.md.  
 > 3. **220µF Capacitor:** Always install between Vcc (Pin 6) and GND with correct polarity to suppress LED pulse noise.  
-> 4. **See [WIRING_DIAGRAM.md](WIRING_DIAGRAM.md) for complete assembly instructions.**
+> 4. **See [WIRING_DIAGRAM.md](WIRING_DIAGRAM.md) for complete assembly instructions and voltage divider options.**
 > **ADC voltage note:** The ESP8266 `A0` pin accepts **0 – 1 V** maximum. The GP2Y1010 outputs up to ~3.3 V. If your dust sensor module does **not** include a built-in voltage divider, add a resistor divider (e.g. 47 kΩ series + 100 kΩ to GND) between `Vo` and `A0` to scale the signal appropriately.
 
 ---

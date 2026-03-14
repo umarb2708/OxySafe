@@ -21,7 +21,7 @@ The Sharp GP2Y1010AU0F has **6 pins**:
 | 2 | **LED-GND** | LED Cathode (negative) | Connect to **GND** |
 | 3 | **LED** | LED Control Input | Connect to **D5 (GPIO14)** - pulse LOW to activate LED |
 | 4 | **S-GND** | Signal Ground | Connect to **GND** |
-| 5 | **Vo** | Analog Output Voltage | Connect to **A0** (with voltage divider if needed) |
+| 5 | **Vo** | Analog Output Voltage | Connect to **A0** (with voltage divider - see options below) |
 | 6 | **Vcc** | Power Supply | Connect to **5V** with **220µF capacitor** to GND |
 
 ---
@@ -76,13 +76,19 @@ The Sharp GP2Y1010AU0F has **6 pins**:
                                               Optional Voltage Divider
                                               for safe ADC reading:
                                                         │
-                                                     [47kΩ]
+                                                     [R1]
                                                         │
                                                     A0 ─┤
                                                         │
-                                                    [100kΩ]
+                                                     [R2]
                                                         │
                                                        GND
+                                                       
+                                              Voltage Divider Options:
+                                              • 150kΩ / 47kΩ (recommended)
+                                              • 100kΩ / 27kΩ 
+                                              • 82kΩ / 22kΩ
+                                              • See calculation section below
 
 ```
 
@@ -117,10 +123,11 @@ The Sharp GP2Y1010AU0F has **6 pins**:
 
 #### Pin 4 (S-GND) - Signal Ground
 - Connect directly to **GND**
-- Important for clean analog readings
-
-#### Pin 5 (Vo) - Analog Output
-- Connect to NodeMCU **A0** (analog input)
+- Important for clean analog readings (choose one):
+  - **Option 1 (Recommended):** 150kΩ (series) + 47kΩ (to GND) → 0.956V max
+  - **Option 2:** 100kΩ (series) + 27kΩ (to GND) → 0.85V max
+  - **Option 3:** 82kΩ (series) + 22kΩ (to GND) → 0.848V max
+  - See full comparison table below)
 - **⚠️ IMPORTANT:** ESP8266 A0 pin accepts **0-1V maximum**
 - GP2Y1010AU0F outputs up to **~4V** at high dust levels
 - **Solution:** Use a voltage divider:
@@ -153,18 +160,64 @@ ESP8266 A0 can only handle **0-1V**. GP2Y1010AU0F outputs **0V (clean) to ~4V (d
 
 **Voltage Divider Formula:**
 ```
+         R1
+Vo ────[====]────┬──── A0
+                 │
+                [====] R2
+                 │
+                GND
+
 Vout = Vin × (R2 / (R1 + R2))
-
-Using R1 = 47kΩ and R2 = 100kΩ:
-Vout = 4V × (100k / (47k + 100k)) = 4V × 0.68 = 2.72V ❌ Still too high!
-
-Better option: R1 = 100kΩ, R2 = 33kΩ:
-Vout = 4V × (33k / (100k + 33k)) = 4V × 0.248 = 0.99V ✓ Safe!
 ```
 
-**Recommended Voltage Divider:**
-- **R1 (series):** 100kΩ
-- **R2 (to GND):** 33kΩ
+### Option 1: Standard E12 Series (Recommended)
+**R1 = 150kΩ, R2 = 47kΩ**
+```
+Vout = 4V × (47k / (150k + 47k)) = 4V × 0.239 = 0.956V ✓ Safe!
+Scaling factor: 0.239 (23.9% of input)
+```
+
+### Option 2: Higher Precision
+**R1 = 100kΩ, R2 = 27kΩ**
+```
+Vout = 4V × (27k / (100k + 27k)) = 4V × 0.213 = 0.85V ✓ Safe!
+Scaling factor: 0.213 (21.3% of input)
+```
+
+### Option 3: Balanced Impedance
+**R1 = 82kΩ, R2 = 22kΩ**
+```
+Vout = 4V × (22k / (82k + 22k)) = 4V × 0.212 = 0.848V ✓ Safe!
+Scaling factor: 0.212 (21.2% of input)
+```
+
+### Option 4: Low Impedance (Better Noise Immunity)
+**R1 = 68kΩ, R2 = 18kΩ**
+```
+Vout = 4V × (18k / (68k + 18k)) = 4V × 0.209 = 0.836V ✓ Safe!
+Scaling factor: 0.209 (20.9% of input)
+Total impedance: 86kΩ (lower = less noise susceptible)
+```
+
+### Option 5: Ultra-Safe (Maximum Headroom)
+**R1 = 120kΩ, R2 = 27kΩ**
+```
+Vout = 4V × (27k / (120k + 27k)) = 4V × 0.184 = 0.736V ✓ Safe!
+Scaling factor: 0.184 (18.4% of input)
+Extra safety margin: ~26% below 1V limit
+```
+
+### Comparison Table
+
+| Option | R1 | R2 | Max Vout | Safety Margin | Total Z | Noise | Availability |
+|--------|----|----|----------|---------------|---------|-------|--------------|
+| 1 | 150kΩ | 47kΩ | 0.956V | 4.4% | 197kΩ | Medium | ★★★ Common |
+| 2 | 100kΩ | 27kΩ | 0.850V | 15% | 127kΩ | Good | ★★★ Common |
+| 3 | 82kΩ | 22kΩ | 0.848V | 15.2% | 104kΩ | Good | ★★☆ Less common |
+| 4 | 68kΩ | 18kΩ | 0.836V | 16.4% | 86kΩ | Best | ★★☆ Less common |
+| 5 | 120kΩ | 27kΩ | 0.736V | 26.4% | 147kΩ | Good | ★★★ Common |
+
+**Recommendation:** Use **Option 1** (150kΩ + 47kΩ) or **Option 2** (100kΩ + 27kΩ) - both use very common resistor values from the E12 series available in most electronics kits.
 
 ---
 
@@ -172,7 +225,11 @@ Vout = 4V × (33k / (100k + 33k)) = 4V × 0.248 = 0.99V ✓ Safe!
 
 - [ ] Connect **5V** power source to NodeMCU VIN and GP2Y Pin 6
 - [ ] Connect **150Ω resistor** between 5V and GP2Y Pin 1 (V-LED)
-- [ ] Connect **220µF capacitor** between GP2Y Pin 6 (Vcc) and GND (observe polarity!)
+- [ ] Build **voltage divider** - choose one combination:
+  - [ ] **150kΩ + 47kΩ** (most common, recommended)
+  - [ ] **100kΩ + 27kΩ** (better safety margin)
+  - [ ] **82kΩ + 22kΩ** (lower noise)
+- [ ] Connect voltage divider: GP2Y Pin 5 (Vo) → [R1] → A0 → [R2] → GNDarity!)
 - [ ] Connect **voltage divider** (100kΩ + 33kΩ) between GP2Y Pin 5 (Vo) and A0
 - [ ] Connect **D5** to GP2Y Pin 3 (LED control)
 - [ ] Connect **D4** to DHT11 DATA pin
@@ -228,8 +285,16 @@ After wiring, upload the firmware and check Serial Monitor output:
 ```
 
 **Expected clean air readings:**
-- Raw ADC: ~150-200 (depends on voltage divider)
+- Raw ADC: ~150-200 (depends on voltage divider ratio)
 - Dust density: 0-50 µg/m³
+
+**Note on ADC Scaling:**
+The firmware may need calibration based on your voltage divider choice:
+- **150kΩ/47kΩ:** Scaling factor = 0.239 (23.9%)
+- **100kΩ/27kΩ:** Scaling factor = 0.213 (21.3%)
+- **82kΩ/22kΩ:** Scaling factor = 0.212 (21.2%)
+
+If your readings seem off, adjust the firmware's voltage conversion formula to match your divider ratio.
 
 **Test dust detection:**
 - Wave paper/cloth near sensor → dust reading should increase
@@ -242,10 +307,11 @@ After wiring, upload the firmware and check Serial Monitor output:
 | Problem | Possible Cause | Solution |
 |---------|---------------|----------|
 | Dust always reads 0 | No 5V power to sensor | Check Pin 6 has 5V |
-| Very high dust readings | No voltage divider on A0 | Add 100kΩ/33kΩ divider |
+| Very high dust readings | No voltage divider on A0 | Add voltage divider (150kΩ/47kΩ recommended) |
 | Erratic/noisy readings | No 220µF capacitor | Add capacitor on Vcc-GND |
 | Sensor doesn't respond | LED not pulsing | Check D5 connection to Pin 3 |
-| ADC always maxed out | Vo directly to A0 (overvoltage) | Use voltage divider! |
+| ADC always maxed out | Vo directly to A0 (overvoltage) | Install voltage divider immediately! |
+| Readings too low | Wrong divider values | Recalculate: ensure Vout < 1V at 4V input |
 
 ---
 

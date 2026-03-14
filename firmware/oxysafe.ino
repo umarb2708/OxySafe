@@ -1,17 +1,32 @@
 /**
  * OxySafe - Air Quality Monitor Firmware
- * Hardware : ESP8266 NodeMCU + DHT11 + GP2Y1010AU0F Optical Dust Sensor
+ * Hardware : ESP8266 NodeMCU + DHT22 + GP2Y1010AU0F Optical Dust Sensor
  * Author   : OxySafe Project
  * Date     : 2026-03-01
  *
  * Wiring:
- *  DHT11        -> D4  (GPIO2)
- *  Dust AOUT    -> A0  (Analog In) via 100kΩ/33kΩ voltage divider
- *  Dust LED CTL -> D5  (GPIO14) - pulses LOW to activate LED
+ *  DHT22        -> D4  (GPIO2)
+ *  Dust AOUT    -> A0  (Analog In) - try WITHOUT voltage divider first!
+ *  Dust LED CTL -> D6  (GPIO12) - pulses LOW to activate LED
  *  Dust V-LED   -> 5V via 150Ω resistor
  *  Dust VCC     -> 5V (REQUIRED - sensor needs 5V, not 3.3V)
  *  Dust GND     -> GND (Pin 2 and Pin 4)
  *  220µF cap    -> Between Dust VCC (Pin 6) and GND (+ to VCC)
+ *
+ * TEST MODE:
+ *  FLASH button (built-in on NodeMCU) - Press to cycle through test AQI values:
+ *    1st press: AQI 45  (Good - Safe)
+ *    2nd press: AQI 120 (Moderate - Caution)
+ *    3rd press: AQI 250 (Very Unhealthy - Dangerous!)
+ *    4th press: Return to normal sensor readings
+ *
+ * IMPORTANT: GP2Y1010AU0F outputs 0.9V-4V which is SAFE for ESP8266's A0 (0-3.3V max).
+ * Try connecting Pin 5 (Vo) DIRECTLY to A0 first. Only add voltage divider if needed.
+ *
+ * Optional Voltage Divider for A0 (only if direct connection doesn't work):
+ *  - 150kΩ (series) + 47kΩ (to GND) [May reduce signal too much!]
+ *  - 100kΩ (series) + 27kΩ (to GND)
+ *  - 82kΩ (series) + 22kΩ (to GND)
  *
  * Libraries required (install via Arduino Library Manager):
  *  - ESP8266WiFi       (bundled with ESP8266 board package)
@@ -68,9 +83,10 @@
 //  Pin Definitions
 // ─────────────────────────────────────────────────────────────
 #define DHTPIN          D4
-#define DHTTYPE         DHT11
-#define DUST_LED_PIN    D5
+#define DHTTYPE         DHT22
+#define DUST_LED_PIN    D6    // Changed from D5 to D6 (GPIO12)
 #define DUST_AOUT_PIN   A0
+#define FLASH_BUTTON    D3    // GPIO0 - Built-in FLASH button for testing
 
 // ─────────────────────────────────────────────────────────────
 //  EEPROM Layout  (total 256 bytes)
@@ -106,6 +122,10 @@ WiFiClient       wifiClient;
 ESP8266WebServer configServer(80);
 unsigned long    lastSendTime = 0;
 bool             inConfigMode = false;
+
+// Test mode for FLASH button
+int              testAqiLevel = 0;    // 0=off, 1=Good, 2=Caution, 3=Dangerous
+unsigned long    lastButtonPress = 0;
 
 // ═════════════════════════════════════════════════════════════
 //  EEPROM helpers
@@ -347,6 +367,13 @@ void setupOTA() {
 #define DUST_SLEEP_TIME    9680   // µs
 
 float readDustDensity() {
+    // Read baseline (LED off)
+    digitalWrite(DUST_LED_PIN, HIGH);
+    delay(50);
+    int baselineADC = analogRead(DUST_AOUT_PIN);
+    float baselineV = baselineADC * (3.3f / 1023.0f);
+    
+    // Pulse LED and read
     digitalWrite(DUST_LED_PIN, LOW);
     delayMicroseconds(DUST_SAMPLING_TIME);
     int rawADC = analogRead(DUST_AOUT_PIN);
@@ -356,6 +383,32 @@ float readDustDensity() {
 
     float voltage     = rawADC * (3.3f / 1023.0f);
     float dustDensity = (voltage - 0.9f) * 200.0f;
+    
+    // Enhanced diagnostics
+    Serial.println("════════════════════════════════════════");
+    Serial.println("[DUST SENSOR DIAGNOSTIC]");
+    Serial.printf("  Baseline (LED OFF): %4d ADC = %.3f V\n", baselineADC, baselineV);
+    Serial.printf("  Active (LED ON):    %4d ADC = %.3f V\n", rawADC, voltage);
+    Serial.printf("  Calculated Dust:    %.2f µg/m³\n", dustDensity);
+    
+    if (baselineADC == 0 && rawADC == 0) {
+        Serial.println("\n  ⚠️  PROBLEM: Both readings are 0 ADC!");
+        Serial.println("  → Pin 5 (Vo) not connected to A0");
+        Serial.println("  → Or voltage divider reducing signal too much");
+        Serial.println("  → Try connecting Vo DIRECTLY to A0 (remove divider)");
+    } else if (rawADC < 30) {
+        Serial.println("\n  ⚠️  PROBLEM: Signal too weak!");
+        Serial.println("  → Voltage divider may be too strong");
+        Serial.println("  → Remove voltage divider, connect Vo direct to A0");
+        Serial.println("  → GP2Y1010AU0F outputs 0.9-4V (safe for ESP8266)");
+    } else if (baselineADC == rawADC) {
+        Serial.println("\n  ⚠️  PROBLEM: No change when LED pulses!");
+        Serial.println("  → LED may not be turning on");
+        Serial.println("  → Check Pin 1 (V-LED) connected to 5V via resistor");
+        Serial.println("  → Check Pin 3 (LED CTL) connected to D6");
+    }
+    Serial.println("════════════════════════════════════════");
+    
     return max(dustDensity, 0.0f);
 }
 
@@ -442,7 +495,47 @@ void setup() {
     // Peripheral init
     pinMode(DUST_LED_PIN, OUTPUT);
     digitalWrite(DUST_LED_PIN, HIGH);   // LED off
+    pinMode(FLASH_BUTTON, INPUT_PULLUP); // FLASH button for testing
     dht.begin();
+    
+    Serial.println("\n[TEST MODE] FLASH button initialized");
+    Serial.println("  Press FLASH button to cycle through AQI test values:");
+    Serial.println("  - 1st press: Send AQI 45 (Good - Safe)");
+    Serial.println("  - 2nd press: Send AQI 120 (Moderate - Caution)");
+    Serial.println("  - 3rd press: Send AQI 250 (Very Unhealthy - Dangerous)");
+    Serial.println("  - 4th press: Return to normal sensor readings");
+    Serial.println("");
+    
+    // Dust sensor diagnostic test
+    Serial.println("\n[DUST SENSOR TEST]");
+    Serial.println("Testing LED control pin (D6 / GPIO12)...");
+    Serial.println("D6 will blink 5 times - measure voltage during test:");
+    Serial.println("");
+    
+    for (int i = 0; i < 5; i++) {
+        // LED ON
+        digitalWrite(DUST_LED_PIN, LOW);
+        Serial.printf("  Test %d: D6 = LOW  (measure now: should be ~0V)\n", i+1);
+        delay(1000);
+        
+        // LED OFF
+        digitalWrite(DUST_LED_PIN, HIGH);
+        Serial.printf("  Test %d: D6 = HIGH (measure now: should be ~3.3V)\n", i+1);
+        delay(1000);
+    }
+    
+    Serial.println("\n[RESULT] Did D6 voltage change between 0V and 3.3V?");
+    Serial.println("  → YES: D6 pin is working, check dust sensor wiring");
+    Serial.println("  → NO:  D6 pin may be damaged, try different GPIO pin");
+    
+    Serial.println("\n[CHECKLIST] Verify these connections:");
+    Serial.println("  [ ] Pin 6 (Vcc)     → 5V with 220µF capacitor to GND");
+    Serial.println("  [ ] Pin 1 (V-LED)   → 5V through 120Ω resistor");
+    Serial.println("  [ ] Pin 2 (LED-GND) → GND");
+    Serial.println("  [ ] Pin 3 (LED CTL) → D6 (GPIO12) **CHANGED FROM D5**");
+    Serial.println("  [ ] Pin 4 (S-GND)   → GND");
+    Serial.println("  [ ] Pin 5 (Vo)      → A0 (with voltage divider if needed)");
+    Serial.println("");
 
     // Load config from flash
     EEPROM.begin(EEPROM_SIZE);
@@ -475,6 +568,32 @@ void setup() {
 void loop() {
     ArduinoOTA.handle();   // handle incoming OTA upload requests
 
+    // Check FLASH button for test mode
+    if (digitalRead(FLASH_BUTTON) == LOW) {  // Button pressed (active LOW)
+        unsigned long now = millis();
+        if (now - lastButtonPress > 1000) {  // Debounce: 1 second between presses
+            lastButtonPress = now;
+            testAqiLevel = (testAqiLevel + 1) % 4;  // Cycle 0->1->2->3->0
+            
+            Serial.println("\n╔════════════════════════════════════════╗");
+            Serial.println("║       FLASH BUTTON PRESSED!            ║");
+            Serial.println("╚════════════════════════════════════════╝");
+            
+            if (testAqiLevel == 0) {
+                Serial.println("  → Test Mode OFF - Using real sensor data");
+            } else if (testAqiLevel == 1) {
+                Serial.println("  → Test Mode: AQI 45 (Good - SAFE)");
+            } else if (testAqiLevel == 2) {
+                Serial.println("  → Test Mode: AQI 120 (Moderate - CAUTION)");
+            } else if (testAqiLevel == 3) {
+                Serial.println("  → Test Mode: AQI 250 (Very Unhealthy - DANGEROUS!)");
+            }
+            Serial.println("");
+            
+            delay(200);  // Additional debounce delay
+        }
+    }
+
     // Reconnect WiFi if it drops
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[WiFi] Disconnected. Reconnecting...");
@@ -488,22 +607,68 @@ void loop() {
     if (now - lastSendTime < SEND_INTERVAL_MS) return;
     lastSendTime = now;
 
-    // Read sensors
-    float temperature = dht.readTemperature();
-    float humidity    = dht.readHumidity();
-    float dustDensity = readDustDensity();
-    float aqi         = calculateAQI(dustDensity);
-
-    if (isnan(temperature) || isnan(humidity)) {
-        Serial.println("[DHT11] Read failed! Check wiring.");
-        return;
+    // Read sensors (or use test values)
+    float temperature, humidity, dustDensity, aqi;
+    
+    if (testAqiLevel == 0) {
+        // Normal mode - read actual sensors
+        temperature = dht.readTemperature();
+        humidity    = dht.readHumidity();
+        dustDensity = readDustDensity();
+        aqi         = calculateAQI(dustDensity);
+    } else {
+        // Test mode - use fake values
+        temperature = 25.0;  // Normal room temp
+        humidity    = 50.0;  // Normal humidity
+        
+        if (testAqiLevel == 1) {
+            aqi = 45.0;           // Good (Safe)
+            dustDensity = 8.0;
+        } else if (testAqiLevel == 2) {
+            aqi = 120.0;          // Moderate (Caution threshold)
+            dustDensity = 40.0;
+        } else {  // testAqiLevel == 3
+            aqi = 250.0;          // Very Unhealthy (Dangerous!)
+            dustDensity = 180.0;
+        }
+        
+        Serial.println("════════════════════════════════════════");
+        Serial.println("[TEST MODE ACTIVE]");
+        Serial.printf("  Sending fake AQI: %.0f (%s)\n", aqi, aqiCategory(aqi));
+        Serial.println("════════════════════════════════════════");
     }
 
+    // Enhanced diagnostics
     Serial.println("─────────────────────────────────");
+    Serial.println("[DIAGNOSTIC MODE]");
+    
+    if (isnan(temperature) || isnan(humidity)) {
+        Serial.println("[DHT22] Read failed! Check wiring.");
+        Serial.println("Possible causes:");
+        Serial.println("  - Wrong sensor type (DHT11 instead of DHT22?)");
+        Serial.println("  - Faulty sensor or poor connection");
+        Serial.println("  - Insufficient power supply");
+        return;
+    }
+    
+    // Check for suspiciously low readings
+    if (temperature < 5.0 || humidity < 20.0) {
+        Serial.println("[WARNING] Abnormal readings detected!");
+        Serial.println("  → Temperature too low or humidity too low");
+        Serial.println("  → If using DHT11, change DHTTYPE to DHT11");
+        Serial.println("  → Check 3.3V/5V power supply");
+        Serial.println("  → Try a different DHT sensor");
+    }
+
     Serial.printf("Temperature  : %.1f °C\n",    temperature);
     Serial.printf("Humidity     : %.1f %%\n",    humidity);
     Serial.printf("Dust Density : %.2f µg/m³\n", dustDensity);
     Serial.printf("AQI          : %.0f  (%s)\n", aqi, aqiCategory(aqi));
+    
+    if (testAqiLevel > 0) {
+        Serial.println("⚠️  TEST MODE ACTIVE - Data is FAKE!");
+    }
+    
     Serial.println("─────────────────────────────────");
 
     sendDataToServer(temperature, humidity, dustDensity, aqi);
