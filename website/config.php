@@ -4,7 +4,7 @@
  */
 
 // ─── Database ────────────────────────────────────────────────
-define('DB_HOST',   'localhost');
+define('DB_HOST',   '127.0.0.1');
 define('DB_NAME',   'oxysafe_db');
 define('DB_USER',   'root');          // ← change in production
 define('DB_PASS',   '');              // ← change in production
@@ -15,7 +15,7 @@ define('API_KEY',   'OXYSAFE_SECRET_KEY');  // must match firmware
 
 // ─── Application ─────────────────────────────────────────────
 define('APP_NAME',  'OxySafe');
-define('BASE_URL',  'http://localhost/OxySafe/website');  // no trailing slash
+define('BASE_URL',  'http://192.168.1.x/OxySafe/website');  // no trailing slash — replace 192.168.1.x with your server's LAN IP
 
 // ─── Session timeout (seconds) ───────────────────────────────
 define('SESSION_TIMEOUT', 3600);
@@ -26,7 +26,7 @@ define('SESSION_TIMEOUT', 3600);
 function getDB(): PDO {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = sprintf('mysql:host=%s;dbname=%s;charset=%s',
+        $dsn = sprintf('mysql:host=%s;port=3306;dbname=%s;charset=%s',
                        DB_HOST, DB_NAME, DB_CHARSET);
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,

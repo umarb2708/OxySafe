@@ -19,6 +19,11 @@
  *    2nd press: AQI 120 (Moderate - Caution)
  *    3rd press: AQI 250 (Very Unhealthy - Dangerous!)
  *    4th press: Return to normal sensor readings
+ *  
+ *  Normal mode (when test mode is OFF):
+ *    - Reads real DHT22 temperature & humidity
+ *    - Sends RANDOM AQI between 30-40 (temporary, until dust sensor works)
+ *    - Press FLASH button to enter test mode for specific AQI scenarios
  *
  * IMPORTANT: GP2Y1010AU0F outputs 0.9V-4V which is SAFE for ESP8266's A0 (0-3.3V max).
  * Try connecting Pin 5 (Vo) DIRECTLY to A0 first. Only add voltage divider if needed.
@@ -87,6 +92,7 @@
 #define DUST_LED_PIN    D6    // Changed from D5 to D6 (GPIO12)
 #define DUST_AOUT_PIN   A0
 #define FLASH_BUTTON    D3    // GPIO0 - Built-in FLASH button for testing
+#define BUZZER_PIN      D7    // GPIO13 - Buzzer for AQI alerts
 
 // ─────────────────────────────────────────────────────────────
 //  EEPROM Layout  (total 256 bytes)
@@ -438,6 +444,33 @@ const char* aqiCategory(float aqi) {
 }
 
 // ═════════════════════════════════════════════════════════════
+//  Buzzer Alert
+// ═════════════════════════════════════════════════════════════
+void beepBuzzer(int count) {
+    for (int i = 0; i < count; i++) {
+        digitalWrite(BUZZER_PIN, HIGH);  // Turn on buzzer
+        delay(200);                       // Beep duration
+        digitalWrite(BUZZER_PIN, LOW);   // Turn off buzzer
+        if (i < count - 1) {
+            delay(300);                   // Pause between beeps
+        }
+    }
+}
+
+void checkAQIAndAlert(float aqi) {
+    if (aqi > 200) {
+        // Danger level: 3 beeps
+        Serial.println("[ALERT] DANGER! AQI > 200 - 3 beeps");
+        beepBuzzer(3);
+    } else if (aqi > 100) {
+        // Caution level: 1 beep
+        Serial.println("[ALERT] CAUTION! AQI > 100 - 1 beep");
+        beepBuzzer(1);
+    }
+    // No beep for AQI <= 100 (Good to Moderate)
+}
+
+// ═════════════════════════════════════════════════════════════
 //  HTTP POST to server
 // ═════════════════════════════════════════════════════════════
 void sendDataToServer(float temperature, float humidity,
@@ -492,10 +525,15 @@ void setup() {
     Serial.println("   OxySafe – Air Quality Node  ");
     Serial.println("================================");
 
+    // Initialize random seed for AQI testing
+    randomSeed(analogRead(A0) + millis());
+
     // Peripheral init
     pinMode(DUST_LED_PIN, OUTPUT);
     digitalWrite(DUST_LED_PIN, HIGH);   // LED off
     pinMode(FLASH_BUTTON, INPUT_PULLUP); // FLASH button for testing
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);      // Buzzer off
     dht.begin();
     
     Serial.println("\n[TEST MODE] FLASH button initialized");
@@ -504,6 +542,9 @@ void setup() {
     Serial.println("  - 2nd press: Send AQI 120 (Moderate - Caution)");
     Serial.println("  - 3rd press: Send AQI 250 (Very Unhealthy - Dangerous)");
     Serial.println("  - 4th press: Return to normal sensor readings");
+    Serial.println("");
+    Serial.println("  NOTE: In normal mode, sending RANDOM AQI 30-40");
+    Serial.println("        (temporary workaround until dust sensor works)");
     Serial.println("");
     
     // Dust sensor diagnostic test
@@ -615,7 +656,17 @@ void loop() {
         temperature = dht.readTemperature();
         humidity    = dht.readHumidity();
         dustDensity = readDustDensity();
-        aqi         = calculateAQI(dustDensity);
+        
+        // TEMPORARY: Since dust sensor returns 0, use random AQI for testing
+        // Remove this when dust sensor is working properly
+        aqi = random(30, 41);  // Random value between 30-40 (Good air quality)
+        dustDensity = aqi * 0.2;  // Approximate dust from AQI
+        
+        Serial.println("════════════════════════════════════════");
+        Serial.println("[NORMAL MODE - Using Random AQI]");
+        Serial.printf("  Generated random AQI: %.0f (for testing)\n", aqi);
+        Serial.println("  Remove this when dust sensor works!");
+        Serial.println("════════════════════════════════════════");
     } else {
         // Test mode - use fake values
         temperature = 25.0;  // Normal room temp
@@ -670,6 +721,9 @@ void loop() {
     }
     
     Serial.println("─────────────────────────────────");
+
+    // Check AQI and trigger buzzer alert
+    checkAQIAndAlert(aqi);
 
     sendDataToServer(temperature, humidity, dustDensity, aqi);
 }
